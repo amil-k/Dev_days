@@ -4,15 +4,23 @@ import GameCard from '../components/GameCard.astro';
 import PageHero from '../components/PageHero.astro';
 import EmptyState from '../components/EmptyState.astro';
 import { getDatabase } from '../lib/db';
-import { getAllGames } from '../lib/games';
+import { getAllGames, getGamesPage } from '../lib/games';
 
 export const prerender = true;
 
 const games = await getAllGames(getDatabase());
+const gamesPerPage = 6;
+const requestedPage = Number(Astro.url.searchParams.get('page') ?? '1');
+const { page, totalPages, hasPreviousPage, hasNextPage } = await getGamesPage(
+  getDatabase(),
+  requestedPage,
+  gamesPerPage,
+);
+const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1);
 ---
 
 <Layout title="Tailspin Toys - Crowdfunding your new favorite game!">
-  <div class="py-8">
+  <div class="py-8" data-page-size={gamesPerPage} data-total-pages={totalPages}>
     <PageHero
       title="Welcome to Tailspin Toys"
       subtitle="Find your next game! And maybe even back one! Explore our collection!"
@@ -28,6 +36,64 @@ const games = await getAllGames(getDatabase());
           {games.map((game) => <GameCard game={game} />)}
         </div>
       )}
+
+      {totalPages > 1 && (
+        <nav aria-label="Game listings pagination" class="mt-8" data-testid="pagination-nav">
+          <ul class="flex flex-wrap items-center justify-center gap-2 text-sm">
+            <li>
+              {hasPreviousPage ? (
+                <a href={`/?page=${page - 1}`} class="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-slate-100 transition hover:bg-slate-700 focus:ring-2 focus:ring-blue-500 focus:outline-none" aria-label="Go to previous page" data-testid="pagination-prev">Previous</a>
+              ) : (
+                <span class="cursor-not-allowed rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-500" aria-disabled="true" data-testid="pagination-prev">Previous</span>
+              )}
+            </li>
+            {pageNumbers.map((pageNumber) => (
+              <li>
+                <a
+                  href={`/?page=${pageNumber}`}
+                  aria-current={pageNumber === page ? 'page' : undefined}
+                  class:list={[
+                    'rounded-md border px-3 py-2 transition focus:ring-2 focus:ring-blue-500 focus:outline-none',
+                    pageNumber === page ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-600 bg-slate-800 text-slate-100 hover:bg-slate-700',
+                  ]}
+                  data-page-number={pageNumber}
+                  data-testid={`pagination-page-${pageNumber}`}
+                >{pageNumber}</a>
+              </li>
+            ))}
+            <li>
+              {hasNextPage ? (
+                <a href={`/?page=${page + 1}`} class="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-slate-100 transition hover:bg-slate-700 focus:ring-2 focus:ring-blue-500 focus:outline-none" aria-label="Go to next page" data-testid="pagination-next">Next</a>
+              ) : (
+                <span class="cursor-not-allowed rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-slate-500" aria-disabled="true" data-testid="pagination-next">Next</span>
+              )}
+            </li>
+          </ul>
+        </nav>
+      )}
     </div>
   </div>
+
+  <script is:inline>
+    const root = document.querySelector('[data-page-size]');
+    const pageSize = Number(root?.dataset.pageSize || '6');
+    const totalPages = Number(root?.dataset.totalPages || '1');
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentPage = Math.max(1, Math.min(Number(urlParams.get('page') || '1'), totalPages || 1));
+    const cards = Array.from(document.querySelectorAll('[data-testid="game-card"]'));
+    const startIndex = (currentPage - 1) * pageSize;
+    cards.forEach((card, index) => {
+      card.style.display = index >= startIndex && index < startIndex + pageSize ? '' : 'none';
+    });
+    document.querySelectorAll('[data-page-number]').forEach((link) => {
+      const pageNumber = Number(link.dataset.pageNumber || '0');
+      link.setAttribute('href', `/?page=${pageNumber}`);
+      if (pageNumber === currentPage) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+    const nextLink = document.querySelector('[data-testid="pagination-next"]');
+    if (nextLink?.tagName === 'A') nextLink.setAttribute('href', `/?page=${Math.min(currentPage + 1, totalPages)}`);
+    const prevLink = document.querySelector('[data-testid="pagination-prev"]');
+    if (prevLink?.tagName === 'A') prevLink.setAttribute('href', `/?page=${Math.max(currentPage - 1, 1)}`);
+  </script>
 </Layout>

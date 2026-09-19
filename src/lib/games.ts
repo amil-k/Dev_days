@@ -1,4 +1,4 @@
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, sql } from 'drizzle-orm';
 import type { Database } from './db';
 import { games, categories, publishers } from '../../db/schema';
 import type { Game } from '../types/game';
@@ -24,6 +24,16 @@ type GameSelectionRow = {
     publisherId: number | null;
     publisherName: string | null;
 };
+
+export interface PaginatedGamesResult {
+    games: Game[];
+    page: number;
+    limit: number;
+    totalGames: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+}
 
 function mapGame(row: GameSelectionRow): Game {
     return {
@@ -54,6 +64,35 @@ function baseGamesQuery(db: Database) {
 export async function getAllGames(db: Database): Promise<Game[]> {
     const rows = await baseGamesQuery(db).orderBy(asc(games.title));
     return rows.map(mapGame);
+}
+
+/** Total count of games in the catalog. */
+export async function getGameCount(db: Database): Promise<number> {
+    const [row] = await db.select({ count: sql<number>`count(*)`.as('count') }).from(games);
+    return Number(row?.count ?? 0);
+}
+
+/** A single page of games ordered by title, with pagination metadata. */
+export async function getGamesPage(db: Database, page = 1, limit = 12): Promise<PaginatedGamesResult> {
+    const safePage = Math.max(1, Math.floor(Number(page) || 1));
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || 12));
+    const totalGames = await getGameCount(db);
+    const totalPages = totalGames === 0 ? 0 : Math.ceil(totalGames / safeLimit);
+    const currentPage = totalPages === 0 ? 1 : Math.min(safePage, totalPages);
+    const rows = await baseGamesQuery(db)
+        .orderBy(asc(games.title))
+        .limit(safeLimit)
+        .offset((currentPage - 1) * safeLimit);
+
+    return {
+        games: rows.map(mapGame),
+        page: currentPage,
+        limit: safeLimit,
+        totalGames,
+        totalPages,
+        hasNextPage: totalPages > 0 && currentPage < totalPages,
+        hasPreviousPage: currentPage > 1,
+    };
 }
 
 /** All game ids ordered by title. */
